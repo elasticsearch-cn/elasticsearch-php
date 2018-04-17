@@ -1,5 +1,5 @@
 [[php_json_objects]]
-== 用 PHP 处理 JSON 数组和 JSON 对象
+== PHP 处理 JSON 数组或对象
 
 客户端在关于 JSON 数组和 JSON 对象的处理和定义方面总是令人疑惑不已。尤其是由空对象和对象数组引起的问题。本节会展示一些 Elasticsearch JSON API 常见的数据格式，还会说明如何以 PHP 的语法来表达这些数据格式。
 
