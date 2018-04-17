@@ -1,18 +1,24 @@
-[[_per_request_configuration]]
-== 请求层配置（Per-request）
 
-除了配置连接层和客户端层，还可以配置请求层。配置请求层是在请求体中指定参数。
+== Per-request configuration
 
-=== 忽略异常
+There are several configurations that can be set on a per-request basis, rather than at a connection- or client-level.
+These are specified as part of the request associative array.
 
-Elasticsearch-PHP 的类库是会对普通的问题抛出异常的。这些异常跟 Elasticsearch 返回的 HTTP 响应码一一对应。例如，获取一个不存在的文档会抛出 `MissingDocument404Exception` 。
+=== Ignoring exceptions
+The library attempts to throw exceptions for common problems.  These exceptions match the HTTP response code provided
+by Elasticsearch.  For example, attempting to GET a nonexistent document will throw a `MissingDocument404Exception`.
 
-异常对于处理一些问题（如找不到文档、语法错误、版本冲突等）十分有用。但是有时候你只是想要处理返回的数据而不想捕获异常。
+Exceptions are a useful and consistent way to deal with problems like missing documents, syntax errors, version
+conflicts, etc.  But sometimes you want to deal with the response body rather than catch exceptions (often useful
+in test suites).
 
-如果你想忽略异常，你可以配置 `ignore` 参数。ignore 参数要作为 `client` 的参数配置在请求体中。例如下面的示例会忽略 `MissingDocument404Exception` ，返回的是 Elasticsearch 提供的 JSON 数据。
+If you need that behavior, you can configure an `ignore` parameter.  This should be configured in the `client` parameter
+of the request array.  For example, this example will ignore the `MissingDocument404Exception`
+exception and instead return the JSON provided by Elasticsearch.
+
 
 [source,php]
---------------------------------------------------
+----
 $client = ClientBuilder::create()->build();
 
 $params = [
@@ -24,13 +30,15 @@ $params = [
 echo $client->get($params);
 
 > {"_index":"test_missing","_type":"test","_id":"1","found":false}
---------------------------------------------------
-<1> 这里会忽略 404 异常
+----
+<1> This will ignore just the 404 missing exception
 
-你可以通过数组的方式指定忽略多个 HTTP 状态码：
+You can specify multiple HTTP status codes to ignore, by providing an array of values:
 
 [source,php]
---------------------------------------------------
+----
+$client = ClientBuilder::create()->build();
+
 $params = [
     'index'  => 'test_missing',
     'type'   => 'test',
@@ -39,21 +47,28 @@ $params = [
 echo $client->get($params);
 
 > No handler found for uri [/test_missing/test/] and method [GET]
---------------------------------------------------
-<1> `ignore` 参数也接收数组。在这个示例中， `BadRequest400Exception` 和 `MissingDocument404Exception` 都会被忽略。
 
-注意，返回的数据是字符串格式，而不是 JSON 数据。而在第一个示例中返回的是 JSON 数据，客户端会 decode 该 JSON 数据为数组。
+----
+<1> `ignore` also accepts an array of exceptions to ignore. In this example,
+the `BadRequest400Exception` is being ignored
 
-一旦客户端无法得知返回的异常数据格式，客户端就不会 decode 返回结果。
 
-=== 自定义查询参数
+It should be noted that the response is simply a string, which may or may not be encoded as JSON.  In the first example,
+the response body was a complete JSON object which could be decoded.  In the second example, it was simply a string.
 
-有时候你要自己提供自定义参数，比如为第三方插件或代理提供认证 token。在 Elasticsearch-php 的白名单中存储着所有的查询参数，这是为了防止你指定一个参数，而 Elasticsearch 却不接收。
+Since the client has no way of knowing what the exception response will contain, no attempts to decode it are taken.
 
-如果你要自定义参数，你就要忽略掉这种白名单机制。为了达到这种效果，请增加 `custom` 参数：
+=== Providing custom query parameters
+
+Sometimes you need to provide custom query params, such as authentication tokens for a third-party plugin or proxy.
+All query parameters are white-listed in Elasticsearch-php, which is to protect you from specifying a param which is
+not accepted by Elasticsearch.
+
+If you need custom parameters, you need to bypass this whitelisting mechanism.  To do so, add them to the `custom`
+parameter as an array of values:
 
 [source,php]
---------------------------------------------------
+----
 $client = ClientBuilder::create()->build();
 
 $params = [
@@ -69,16 +84,19 @@ $params = [
     ]
 ];
 $exists = $client->exists($params);
---------------------------------------------------
+----
 
-=== 增加返回冗余
 
-客户端默认返回响应体数据。如果你需要更多信息（如头信息、相应状态码等），你可以让客户端返回更多信息。通过 `verbose` 参数可以开启这个功能。
+=== Increasing the Verbosity of responses
 
-没有返回冗余，你看到的返回信息是这样的：
+By default, the client will only return the response body.  If you require more information (e.g. stats about the transfer,
+headers, status codes, etc), you can tell the client to return a more verbose response.  This is enabled via the
+`verbose` parameter in the client options.
+
+Without verbosity, all you see is the response body:
 
 [source,php]
---------------------------------------------------
+----
 $client = ClientBuilder::create()->build();
 
 $params = [
@@ -103,12 +121,12 @@ Array
         )
 
 )
---------------------------------------------------
+----
 
-如果加上返回冗余：
+With verbosity turned on, you will see all of the transfer stats:
 
 [source,php]
---------------------------------------------------
+----
 $client = ClientBuilder::create()->build();
 
 $params = [
@@ -194,18 +212,27 @@ Array
                 )
         )
 )
---------------------------------------------------
+----
 
-=== Curl 超时设置
+=== Curl Timeouts
 
-通过 `timeout` 和 `connect_timeout` 参数可以配置每个请求的 Curl 超时时间。这个配置主要是控制客户端的超时时间。 `connect_timeout` 参数控制在连接阶段完成前，curl 的等待时间。而 `timeout` 参数则控制整个请求完成前，最多等待多长时间。
+It is possible to configure per-request curl timeouts via the `timeout` and `connect_timeout` parameters.  These
+control the client-side, curl timeouts.  The `connect_timeout` paramter controls how long curl should wait for the
+"connect" phase to finish, while the `timeout` parameter controls how long curl should wait for the entire request
+to finish.
 
-如果超过超时时间，curl 会关闭连接并返回一个致命错误。两个参数都要用 *秒* 作为参数。
+If either timeout expires, curl will close the connection and return an error.  Both parameters should be specified
+in seconds.
 
-注意：客户端超时并 *不* 意味着 Elasticsearch 中止请求。Elasticsearch 会继续执行请求直到请求完成。在慢查询或是 bulk 请求下，操作会在后台继续执行，对客户端来说这些动作是隐蔽的。如果客户端在超时后立即断开连接，然后又立刻发送另外一个请求。由于客户端没有处理服务端回压（译者注：这里国内翻译成背压，但是https://www.zhihu.com/question/49618581?from=profile_question_card[知乎]有文章指出这个翻译不够精准，会造成程序员难以理解，所以这里翻译成回压）的机制，这有可能会造成服务端过载。遇到这种情况，你会发现线程池队列会慢慢变大，当队列超出负荷，Elasticsearch 会发送 `EsRejectedExecutionException` 的异常。
+Note: client-side timeouts *do not* mean that Elasticsearch aborts the request.  Elasticsearch will continue executing
+the request until it completes.  In the case of a slow query or bulk request, the operation will continue executing
+"in the background", unknown to your client.  If your client kills connections rapidly with a timeout, only to immediately
+execute another request, it is possible to swamp the server with many connections because there is no "back-pressure" on the
+client.  In these situations, you will see the appropriate threadpool queue growing in size, and may start receiving
+`EsRejectedExecutionException` exceptions from Elasticsearch when the queue finally reaches capacity.
 
 [source,php]
---------------------------------------------------
+----
 $client = ClientBuilder::create()->build();
 
 $params = [
@@ -218,14 +245,15 @@ $params = [
     ]
 ];
 $response = $client->get($params);
---------------------------------------------------
+----
 
-=== 开启 Future 模式
+=== Enabling Future Mode
 
-客户端支持异步方式批量发送请求。通过 client 选项的 `future` 参数可以开启（HTTP handler 要支持异步模式）：
+The client supports asynchronous, batch processing of requests.  This is enabled (if your HTTP handler supports it) on
+a per-request basis via the `future` parameter in the client options:
 
 [source,php]
---------------------------------------------------
+----
 $client = ClientBuilder::create()->build();
 
 $params = [
@@ -238,16 +266,21 @@ $params = [
 ];
 $future = $client->get($params);
 $results = $future->wait();       // resolve the future
---------------------------------------------------
+----
 
-Future 模式有两个参数可选： `true` 或 `lazy` 。关于异步执行方法以及如何处理返回结果的详情，请到<<_future_mode>>中查看。
+Future mode supports two options: `true` or `'lazy'`.  For more details about how asynchronous execution functions, and
+how to work with the results, see the dedicated page on <<_future_mode>>.
 
-=== SSL 加密
+=== SSL Encryption
 
-在创建客户端时，一般需要指定 SSL 配置，因为通常所有的请求都需要加密（查询<<_security>>一节获取更多详情）。然而，在每个请求中配置 SSL 加密也是有可能的。例如，如果你需要在某个特定的请求中使用自签名证书，你可以通过在 client 选项中配置 `verify` 参数：
+Normally, you will specify SSL configurations when you create the client (see <<_security>> for more details), since encryption typically
+applies to all requests. However, it is possible to configure on a per-request basis too if you need that functionality.
+For example, if you  need to use a self-signed cert on a specific request, you can specify it via the `verify` parameter
+in the client options:
+
 
 [source,php]
---------------------------------------------------
+----
 $client = ClientBuilder::create()->build();
 
 $params = [
@@ -259,4 +292,4 @@ $params = [
     ]
 ];
 $result = $client->get($params);
---------------------------------------------------
+----

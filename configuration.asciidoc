@@ -1,18 +1,23 @@
-[[_configuration]]
-== 配置
 
-几乎所有应用（译者注：如 mysql、redis 等）的客户端都可以配置。大多数用户只需配置一些参数来满足他们的需求，但是也有可能需要修改大量的内核代码来满足需求。
+== Configuration
 
-在客户端对象实例化前就应该通过 ClientBuilder 对象来完成自定义配置。我们会概述一下所有的配置参数，并且展示一些代码示例。
+Almost every aspect of the client is configurable.  Most users will only need to configure a few parameters to suit
+their needs, but it is possible to completely replace much of the internals if required.
 
-=== Inline Host 配置法
+Custom configuration is accomplished before the client is instantiated, through the ClientBuilder helper object.
+We'll walk through all the configuration options and show sample code to replace the various components.
 
-最常见的配置是告诉客户端有关集群的信息：有多少个节点，节点的ip地址和端口号。如果没有指定主机名，客户端会连接 `localhost:9200` 。
+=== Inline Host Configuration
 
-利用 `ClientBuilder` 的 `setHosts()` 方法可以改变客户端的默认连接方式。 `setHosts()` 方法接收一个一维数组，数组里面每个值都代表集群里面的一个节点信息。值的格式多种多样，主要看你的需求：
+The most common configuration is telling the client about your cluster: how many nodes, their addresses and ports.  If
+no hosts are specified, the client will attempt to connect to `localhost:9200`.
+
+This behavior can be changed by using the `setHosts()` method on `ClientBuilder`.  The method accepts an array of values,
+each entry corresponding to one node in your cluster.  The format of the host can vary, depending on your needs (ip vs
+hostname, port, ssl, etc)
 
 [source,php]
---------------------------------------------------
+----
 $hosts = [
     '192.168.1.1:9200',         // IP + Port
     '192.168.1.2',              // Just IP
@@ -24,12 +29,13 @@ $hosts = [
 $client = ClientBuilder::create()           // Instantiate a new ClientBuilder
                     ->setHosts($hosts)      // Set the hosts
                     ->build();              // Build the client object
---------------------------------------------------
+----
 
-注意 `ClientBuilder` 对象允许链式操作。当然也可以分别调用上述的方法：
+Notice that the `ClientBuilder` object allows chaining method calls for brevity.  It is also possible to call the methods
+individually:
 
 [source,php]
---------------------------------------------------
+----
 $hosts = [
     '192.168.1.1:9200',         // IP + Port
     '192.168.1.2',              // Just IP
@@ -41,16 +47,23 @@ $hosts = [
 $clientBuilder = ClientBuilder::create();   // Instantiate a new ClientBuilder
 $clientBuilder->setHosts($hosts);           // Set the hosts
 $client = $clientBuilder->build();          // Build the client object
---------------------------------------------------
+----
 
-=== Extended Host 配置法
+=== Extended Host Configuration
 
-客户端也支持 Extended Host 配置语法。Inline Host 配置法依赖 PHP 的 `filter_var()` 函数和 `parse_url()` 函数来验证和提取一个 URL 的各个部分。然而，这些 php 函数在一些特定的场景下会出错。例如， `filter_var()` 函数不接收有下划线的 URL。同样，如果 Basic Auth 的密码含有特定字符（如#、?），那么 `parse_url()` 函数会报错。
+The client also supports an _extended_ host configuration syntax.  The inline configuration method relies on PHP's
+`filter_var()` and `parse_url()` methods to validate and extract the components of a URL.  Unfortunately, these built-in
+methods run into problems with certain edge-cases.  For example, `filter_var()` will not accept URL's that have underscores
+(which are questionably legal, depending on how you interpret the RFCs).  Similarly, `parse_url()` will choke if a
+Basic Auth's password contains special characters such as a pound sign (`#`) or question-marks (`?`).
 
-因而客户端也支持 Extended Host 配置语法，从而使客户端实例化更加可控：
+For this reason, the client supports an extended host syntax which provides greater control over host initialization.
+None of the components are validated, so edge-cases like underscores domain names will not cause problems.
+
+The extended syntax is an array of parameters for each host:
 
 [source,php]
---------------------------------------------------
+----
 $hosts = [
     // This is effectively equal to: "https://username:password!#$?*abc@foo.com:9200/"
     [
@@ -69,33 +82,41 @@ $hosts = [
 $client = ClientBuilder::create()           // Instantiate a new ClientBuilder
                     ->setHosts($hosts)      // Set the hosts
                     ->build();              // Build the client object
---------------------------------------------------
+----
 
-每个节点只需要配置 `host` 参数。如果其它参数不指定，那么默认的端口是 `9200` ，默认的 scheme 是 `http` 。
+Only the `host` parameter is required for each configured host.  If not provided, the default port is `9200`.  The default
+scheme is `http`.
 
-=== 认证与加密
+=== Authorization and Encryption
 
-想了解 HTTP 认证和 SSL 加密的内容，请查看 link:_security.html[认证与加密]。
+For details about HTTP Authorization and SSL encryption, please see link:_security.html[Authorization and SSL].
 
-=== 设置重连次数
+=== Set retries
 
-在一个集群中，如果操作抛出如下异常：connection refusal, connection timeout, DNS lookup timeout 等等（不包括4xx和5xx），客户端便会重连。客户端默认重连 `n` （n=节点数）次。
+By default, the client will retry `n` times, where `n = number of nodes` in your cluster.  A retry is only performed
+if the operation results in a "hard" exception: connection refusal, connection timeout, DNS lookup timeout, etc.  4xx and
+5xx errors are not considered retry'able events, since the node returns an operational response.
 
-如果你不想重连，或者想更改重连次数。你可以使用 `setRetries()` 方法：
+If you would like to disable retries, or change the number, you can do so with the `setRetries()` method:
 
 [source,php]
---------------------------------------------------
+----------------------------
+
 $client = ClientBuilder::create()
                     ->setRetries(2)
                     ->build();
---------------------------------------------------
+----------------------------
 
-假如客户端重连次数超过设定值，便会抛出最后接收到的异常。例如，如果你有 10 个节点，设置 `setRetries(5)` ，客户端便会最多发送 5 次连接命令。如果 5 个节点返回的结果都是 connection timeout，那么客户端会抛出 `OperationTimeoutException` 。由于连接池处于使用状态，这些节点也可能会被标记为死节点。
+When the client runs out of retries, it will throw the last exception that it received.  For example, if you have ten
+alive nodes, and `setRetries(5)`, the client will attempt to execute the command up to five times.  If all five nodes
+result in a connection timeout (for example), the client will throw an `OperationTimeoutException`.  Depending on the
+Connection Pool being used, these nodes may also be marked dead.
 
-为了识别是否为重连异常，抛出的异常会包含一个 `MaxRetriesException` 。例如，你可以在 catch 内使用 `getPrevious()` 来捕获一个特定的 curl 异常，以便查看是否包含 `MaxRetriesException` 。
+To help in identification, exceptions that are thrown due to max retries will wrap a `MaxRetriesException`.  For example,
+you can catch a specific curl exception then check if it wraps a MaxRetriesException using `getPrevious()`:
 
 [source,php]
---------------------------------------------------
+----
 $client = Elasticsearch\ClientBuilder::create()
     ->setHosts(["localhost:1"])
     ->setRetries(0)
@@ -109,12 +130,14 @@ try {
         echo "Max retries!";
     }
 }
---------------------------------------------------
+----
 
-由于所有 curl 抛出的异常（`CouldNotConnectToHost`, `CouldNotResolveHostException`, `OperationTimeoutException`）都继承 `TransportException` 。这样你就能够用 `TransportException` 来替代如上3种异常：
+Alternatively, all "hard" curl exceptions (`CouldNotConnectToHost`, `CouldNotResolveHostException`, `OperationTimeoutException`)
+extend the more general `TransportException`.  So you could instead catch the general `TransportException` and then
+check it's previous value:
 
 [source,php]
---------------------------------------------------
+----
 $client = Elasticsearch\ClientBuilder::create()
     ->setHosts(["localhost:1"])
     ->setRetries(0)
@@ -128,59 +151,39 @@ try {
         echo "Max retries!";
     }
 }
---------------------------------------------------
+----
 
-=== 开启日志
 
-Elasticsearch-PHP 支持日志记录，但由于性能原因，所以默认没有开启。如果你希望开启日志，你就要选择一个日志记录工具并安装它，然后在客户端中开启日志。推荐使用 https://github.com/Seldaek/monolog[Monolog]，不过任何实现 PSR/Log 接口的日志记录工具都可以使用。
+[[enabling_logger]]
+=== Enabling the Logger
+Elasticsearch-PHP supports logging, but it is not enabled by default for performance reasons.  If you wish to enable logging,
+you need to select a logging implementation, install it, then enable the logger in the Client.  The recommended logger
+is https://github.com/Seldaek/monolog[Monolog], but any logger that implements the `PSR/Log` interface will work.
 
-你会发现在安装 elasticsearch-php 时会建议安装 Monolog。为了使用 Monolog，请把它加入 `composer.json` ：
+You might have noticed that Monolog was suggested during installation.  To begin using Monolog, add it to your `composer.json`:
 
-[source,js]
---------------------------------------------------
+[source,json]
+----------------------------
 {
     "require": {
         ...
-        "elasticsearch/elasticsearch" : "~6.0",
+        "elasticsearch/elasticsearch" : "~5.0",
         "monolog/monolog": "~1.0"
     }
 }
---------------------------------------------------
+----------------------------
 
-然后用 composer 更新：
+And then update your composer installation:
 
-[source,sh]
---------------------------------------------------
+[source,shell]
+----------------------------
 php composer.phar update
---------------------------------------------------
+----------------------------
 
-一旦安装好 Monolog（或其他日志记录工具），你就要创建一个日志对象并且注入到客户端中。 `ClientBuilder` 对象有一个静态方法来构建一个通用的 Monolog-based 日志对象。你只需要提供存放日志路径就行：
-
-[source,php]
---------------------------------------------------
-$logger = ClientBuilder::defaultLogger('path/to/your.log');
-
-$client = ClientBuilder::create()       // Instantiate a new ClientBuilder
-            ->setLogger($logger)        // Set the logger with a default logger
-            ->build();                  // Build the client object
---------------------------------------------------
-
-你也可以指定记录的日志级别：
+Once Monolog (or another logger) is installed, you need to create a log object and inject it into the client:
 
 [source,php]
---------------------------------------------------
-// set severity with second parameter
-$logger = ClientBuilder::defaultLogger('/path/to/logs/', Logger::INFO);
-
-$client = ClientBuilder::create()       // Instantiate a new ClientBuilder
-            ->setLogger($logger)        // Set the logger with a default logger
-            ->build();                  // Build the client object
---------------------------------------------------
-
-`defaultLogger()` 方法只是一个辅助方法，不要求你使用它。你可以自己创建日志对象，然后注入：
-
-[source,php]
---------------------------------------------------
+----
 use Monolog\Logger;
 use Monolog\Handler\StreamHandler;
 
@@ -190,18 +193,24 @@ $logger->pushHandler(new StreamHandler('path/to/your.log', Logger::WARNING));
 $client = ClientBuilder::create()       // Instantiate a new ClientBuilder
             ->setLogger($logger)        // Set your custom logger
             ->build();                  // Build the client object
---------------------------------------------------
+----
 
-=== 配置 HTTP Handler
 
-Elasticsearch-PHP 使用的是可替代的 HTTP 传输层——https://github.com/guzzle/RingPHP/[RingPHP]。这允许客户端构建一个普通的 HTTP 请求，然后通过传输层发送出去。真正的请求细节隐藏在客户端内，并且这是模块化的，因此你可以根据你的需求来选择 HTTP handlers。
+=== Configure the HTTP Handler
 
-客户端使用的默认 handler 是结合型 handler（combination handler）。当使用同步模式，handler 会使用 `CurlHandler` 来一个一个地发送 curl 请求。这种方式对于单一请求（single requests）来说特别迅速。当异步（future）模式开启，handler 就转换成使用 `CurlMultiHandler` ， `CurlMultiHandler` 以 curl_multi 方式来发送请求。这样会消耗更多性能，但是允许批量 HTTP 请求并行执行。
+Elasticsearch-PHP uses an interchangeable HTTP transport layer called https://github.com/guzzle/RingPHP/[RingPHP].  This
+allows the client to construct a generic HTTP request, then pass it to the transport layer to execute.  The actual execution
+details are hidden from the client and modular, so that you can choose from several HTTP handlers depending on your needs.
 
-你可以从以下一些助手函数中选择一个来配置 HTTP handler，或者你也可以自定义 HTTP handler：
+The default handler that the client uses is a combination handler.  When executing in synchronous mode, the handler
+uses `CurlHandler`, which executes single curl calls.  These are very fast for single requests.  When asynchronous (future)
+mode is enabled, the handler switches to `CurlMultiHandler`, which uses the curl_multi interface.  This involves a bit
+more overhead, but allows batches of HTTP requests to be processed in parallel.
+
+You can configure the HTTP handler with one of several helper functions, or provide your own custom handler:
 
 [source,php]
---------------------------------------------------
+----
 $defaultHandler = ClientBuilder::defaultHandler();
 $singleHandler  = ClientBuilder::singleHandler();
 $multiHandler   = ClientBuilder::multiHandler();
@@ -210,64 +219,81 @@ $customHandler  = new MyCustomHandler();
 $client = ClientBuilder::create()
             ->setHandler($defaultHandler)
             ->build();
---------------------------------------------------
+----
 
-想要了解自定义 Ring handler 的细节，请查看 http://ringphp.readthedocs.io/en/latest/[RingPHP文档]。
+For details on creating your own custom Ring handler, please see the http://guzzle.readthedocs.org/en/latest/handlers.html[RingPHP Documentation]
 
-在所有的情况下都推荐使用默认的 handler。这不仅可以以同步模式快速发送请求，而且也保留了异步模式来实现并行请求。 如果你觉得你永远不会用到 future 模式，你可以考虑用 `singleHandler` ，这样会间接节省一些性能。
+The default handler is recommended in almost all cases.  This allows fast synchronous execution, while retaining flexibility
+to invoke parallel batches with async future mode.  You may consider using just the `singleHandler` if you know you will
+never need async capabilities, since it will save a small amount of overhead by reducing indirection.
 
-=== 设置连接池
 
-客户端会维持一个连接池，连接池内每个连接代表集群的一个节点。这里有好几种连接池可供使用，每个的行为都有些细微差距。连接池可通过 `setConnectionPool()` 来配置：
+=== Setting the Connection Pool
+
+The client maintains a pool of connections, with each connection representing a node in your cluster.  There are several
+connection pool implementations available, and each has slightly different behavior (pinging vs no pinging, etc).
+Connection pools are configured via the `setConnectionPool()` method:
 
 [source,php]
---------------------------------------------------
+----
 $connectionPool = '\Elasticsearch\ConnectionPool\StaticNoPingConnectionPool';
 $client = ClientBuilder::create()
             ->setConnectionPool($connectionPool)
             ->build();
---------------------------------------------------
+----
 
-更多细节请查询 link:_connection_pool.html[连接池配置]。
+For more details, please see the dedicated page on link:_connection_pool.html[configuring connection pools].
 
-=== 设置选择器（Selector）
+=== Setting the Connection Selector
 
-连接池是用来管理集群的连接，但是选择器则是用来确定下一个 API 请求要用哪个连接。这里有几个选择器可供选择。选择器可通过 `setSelector()` 方法来更改：
+The connection pool manages the connections to your cluster, but the Selector is the logic that decides which connection
+should be used for the next API request.  There are several selectors that you can choose from.  Selectors can be changed
+via the `setSelector()` method:
 
 [source,php]
---------------------------------------------------
+----
 $selector = '\Elasticsearch\ConnectionPool\Selectors\StickyRoundRobinSelector';
 $client = ClientBuilder::create()
             ->setSelector($selector)
             ->build();
---------------------------------------------------
+----
 
-更多细节请查询 link:_selectors.html[选择器配置]。
+For more details, please see the dedicated page on link:_selectors.html[configuring selectors].
 
-=== 设置序列化器（Serializer）
 
-客户端的请求数据是关联数组，但是 Elasticsearch 接受 JSON 数据。序列化器是指把 PHP 数组序列化为 JSON 数据。当然 Elasticsearch 返回的 JSON 数据也会反序列化为 PHP 数组。这看起来有些繁琐，但把序列化器模块化对于处理一些极端案例有莫大帮助。
+=== Setting the Serializer
 
-大部分人不会更改默认的序列化器（ `SmartSerializer` ），但你真的想改变，那可以通过 `setSerializer()` 方法：
+Requests are given to the client in the form of associative arrays, but Elasticsearch expects JSON.  The Serializer's
+job is to serialize PHP objects into JSON.  It also de-serializes JSON back into PHP arrays.  This seems trivial, but
+there are a few edgecases which make it useful for the serializer to remain modular.
+
+The majority of people will never need to change the default serializer (`SmartSerializer`), but if you need to,
+it can be done via the `setSerializer()` method:
 
 [source,php]
---------------------------------------------------
+----
 $serializer = '\Elasticsearch\Serializers\SmartSerializer';
 $client = ClientBuilder::create()
             ->setSerializer($serializer)
             ->build();
---------------------------------------------------
+----
 
-更多细节请查询 link:_serializers.html[序列化器配置]。
+For more details, please see the dedicated page on link:_serializers.html[configuring serializers].
 
-=== 设置自定义 ConnectionFactory
 
-当连接池发送请求时，ConnectionFactory 就会实例化连接对象。一个连接对象代表一个节点。因为 handler（通过RingPHP）才是真正的执行网络请求，那么连接对象的主要工作就是维持连接：节点是活节点吗？ping 的通吗？host 和端口是什么？
+=== Setting a custom ConnectionFactory
 
-很少会去自定义 ConnectionFactory，但是如果你想做，那么你要提供一个完整的 ConnectionFactory 对象作为 `setConnectionFactory()` 方法的参数。这个自定义对象需要实现 ConnectionFactoryInterface 接口。
+The ConnectionFactory instantiates new Connection objects when requested by the ConnectionPool.  A single Connection
+represents a single node.  Since the client hands actual networking work over to RingPHP, the Connection's main job is
+book-keeping:  Is this node alive?  Did it fail a ping request?  What is the host and port?
+
+There is little reason to provide your own ConnectionFactory, but if you need to do so, you need to supply an intact
+ConnectionFactory object to the `setConnectionFactory()` method.  The object should implement the `ConnectionFactoryInterface`
+interface.
 
 [source,php]
---------------------------------------------------
+----
+
 class MyConnectionFactory implements ConnectionFactoryInterface
 {
 
@@ -303,18 +329,23 @@ $connectionFactory = new MyConnectionFactory(
 $client = ClientBuilder::create()
             ->setConnectionFactory($connectionFactory);
             ->build();
---------------------------------------------------
+----
 
-如上所述，如果你想注入自定义的 ConnectionFactory，你自己就要负责写对它。自定义 ConnectionFactory 需要用到 HTTP handler，序列化器，日志和追踪。
+As you can see, if you decide to inject your own ConnectionFactory, you take over the responsibiltiy of wiring it correctly.
+The ConnectionFactory requires a working HTTP handler, serializer, logger and tracer.
 
-=== 设置 Endpoint 闭包
 
-客户端使用 Endpoint 闭包来发送 API 请求到 Elasticsearch 的 Endpoint 对象。一个命名空间对象会通过闭包构建一个新的 Endpoint，这个意味着如果你想扩展 API 的 Endpoint，你可以很方便的做到。
+=== Set the Endpoint closure
 
-例如，我们可以新增一个 endpoint：
+The client uses an Endpoint closure to dispatch API requests to the correct Endpoint object.  A namespace object will
+construct a new Endpoint via this closure, which means this is a handy location if you wish to extend the available set
+of API endpoints available
+
+For example, we could add a new endpoint like so:
 
 [source,php]
---------------------------------------------------
+----
+
 $transport = $this->transport;
 $serializer = $this->serializer;
 
@@ -335,18 +366,24 @@ $newEndpoint = function ($class) use ($transport, $serializer) {
 $client = ClientBuilder::create()
             ->setEndpoint($newEndpoint)
             ->build();
---------------------------------------------------
+----
 
-很明显，如果你这样做的话，那么你就要负责对现存的 Endpoint 进行维护，以确保所有的方法都能正常运行。同时你也要确保端口和序列化都写入每个 Endpoint。
+Obviously, by doing this you take responsibility that all existing endpoints still function correctly.  And you also
+assume the responsibility of correctly wiring the Transport and Serializer into each endpoint.
 
-=== 从 hash 配置中创建客户端
 
-为了更加容易的创建客户端，所有的配置都可以用 hash 形式来替代单一配置方法。这种配置方法可以通过静态方法 `ClientBuilder::FromConfig()` 来完成，它接收一个数组，返回一个配置好的客户端。
+=== Building the client from a configuration hash
 
-数组的键名对应方法名（如 retries 对应 setRetries() 方法）：
+To help ease automated building of the client, all configurations can be provided in a setting
+hash instead of calling the individual methods directly.  This functionality is exposed through
+the `ClientBuilder::FromConfig()` static method, which accepts an array of configurations
+and returns a fully built client.
+
+Array keys correspond to the method name, e.g. `retries` key corresponds to `setRetries()` method.
+
 
 [source,php]
---------------------------------------------------
+----
 $params = [
     'hosts' => [
         'localhost:9200'
@@ -355,12 +392,16 @@ $params = [
     'handler' => ClientBuilder::singleHandler()
 ];
 $client = ClientBuilder::fromConfig($params);
---------------------------------------------------
+----
 
-为了帮助用户找出潜在的问题，未知参数会抛出异常。如果你不想要抛出异常，你可以在 fromConfig() 中设置 $quiet = true 来关闭异常：
+
+Unknown parameters will throw an exception, to help the user find potential problems.
+If this behavior is not desired (e.g. you are using the hash for other purposes, and may have
+keys unrelated to the Elasticsearch client), you can set $quiet = true in fromConfig() to
+silence the exceptions.
 
 [source,php]
---------------------------------------------------
+----
 $params = [
     'hosts' => [
         'localhost:9200'
@@ -371,4 +412,4 @@ $params = [
 
 // Set $quiet to true to ignore the unknown `imNotReal` key
 $client = ClientBuilder::fromConfig($params, true);
---------------------------------------------------
+----

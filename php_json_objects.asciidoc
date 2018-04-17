@@ -1,16 +1,20 @@
 [[php_json_objects]]
-== 用 PHP 处理 JSON 数组和 JSON 对象
+== Dealing with JSON Arrays and Objects in PHP
 
-客户端在关于 JSON 数组和 JSON 对象的处理和定义方面总是令人疑惑不已。尤其是由空对象和对象数组引起的问题。本节会展示一些 Elasticsearch JSON API 常见的数据格式，还会说明如何以 PHP 的语法来表达这些数据格式。
+A common source of confusion with the client revolves around JSON arrays and objects, and how to specify them in PHP.
+In particular, problems are caused by empty objects and arrays of objects.  This page will show you some common patterns
+used in Elasticsearch JSON API, and how to convert that to a PHP representation
 
-=== 空对象
+=== Empty Objects
 
-Elasticsearch API 在几个地方使用了空对象，这会对 PHP 造成影响。不像其它的语言，PHP 没有一个简便的符号来表示空对象，而许多开发者还不知道如何指定一个空对象。
+The Elasticsearch API uses empty JSON objects in several locations, and this can cause problems for PHP.  Unlike other
+languages, PHP does not have a "short" notation for empty objects and so many developers are unaware how to specify
+an empty object.
 
-设想在查询中增加 Highlight：
+Consider adding a Highlight to a query:
 
-[source,js]
---------------------------------------------------
+[source,json]
+----
 {
     "query" : {
         "match" : {
@@ -19,17 +23,19 @@ Elasticsearch API 在几个地方使用了空对象，这会对 PHP 造成影响
     },
     "highlight" : {
         "fields" : {
-            "content" : {}<1>
+            "content" : {} <1>
         }
     }
 }
---------------------------------------------------
-<1> 这个空对象便会引起问题
+----
+<1> This empty JSON object is what causes problems.
 
-问题就在于 PHP 会自动把 `"content" : {}` 转换成 `"content" : []` ，在 Elasticsearch DSL 中这样的数据格式是非法的。我们需要告诉 PHP 那个空对象就是一个空对象而非空数组。为了在查询中定义空对象，你需要这样做：
+The problem is that PHP will automatically convert `"content" : {}` into `"content" : []`, which is no longer valid
+Elasticsearch DSL.  We need to tell PHP that the empty object is explicitly an object, not an array.  To define this
+query in PHP, you would do:
 
-[source,php]
---------------------------------------------------
+[source,json]
+----
 $params['body'] = array(
     'query' => array(
         'match' => array(
@@ -38,59 +44,64 @@ $params['body'] = array(
     ),
     'highlight' => array(
         'fields' => array(
-            'content' => new \stdClass()<1>
+            'content' => new \stdClass() <1>
         )
     )
 );
 $results = $client->search($params);
---------------------------------------------------
-<1> 使用 PHP 的 stdClass 对象来代表空对象，现在就可以解析为正确的 JSON 数据了。
+----
+<1> We use the generic PHP stdClass object to represent an empty object.  The JSON will now encode correctly.
 
-通过使用一个 stdClass 对象，我们可以强制 `json_encode` 解析为空对象，而不是空数组。然而，这种冗余的写法是唯一解决 PHP 空对象的方法，没有简便的方法可以表示空对象。
+By using an explicit stdClass object, we can force the `json_encode` parser to correctly output an empty object, instead
+of an empty array.  Sadly, this verbose solution is the only way to acomplish the goal in PHP...there is no "short"
+version of an empty object.
 
-=== 对象数组
+=== Arrays of Objects
 
-Elasticsearch DSL 的另一种常见的数据格式是对象数组。例如，假设在你的查询中增加排序：
+Another common pattern in Elasticsearch DSL is an array of objects.  For example, consider adding a sort to your query:
 
-[source,js]
---------------------------------------------------
+[source,json]
+----
 {
     "query" : {
         "match" : { "content" : "quick brown fox" }
     },
-    "sort" : [ <1>
+    "sort" : [  <1>
         {"time" : {"order" : "desc"}},
         {"popularity" : {"order" : "desc"}}
     ]
 }
---------------------------------------------------
-<1> "sort" 内包含 JSON 对象数组。
+----
+<1> "sort" contains an array of JSON objects
 
-这种形式很常见，但是在 PHP 中构建就稍微有些繁琐，因为这需要嵌套数组。用 PHP 写这种冗余的结构就让人读起来有点晦涩。为了构建对象数组，你要在数组中嵌套数组：
+This arrangement is *very* common, but the construction in PHP can be tricky since it requires nesting arrays.  The
+verbosity of PHP tends to obscure what is actually going on.  To construct an array of objects, you actually need
+an array of arrays:
 
-[source,php]
---------------------------------------------------
+[source,json]
+----
 $params['body'] = array(
     'query' => array(
         'match' => array(
             'content' => 'quick brown fox'
         )
     ),
-    'sort' => array( <1>
-        array('time' => array('order' => 'desc')), <2>
+    'sort' => array(    <1>
+        array('time' => array('order' => 'desc')),  <2>
         array('popularity' => array('order' => 'desc')) <3>
     )
 );
 $results = $client->search($params);
---------------------------------------------------
-<1> 这里 encode 为 `"sort" : []`
-<2> 这里 encode 为 `{"time" : {"order" : "desc"}}`
-<3> 这里 encode 为 `{"popularity" : {"order" : "desc"}}`
+----
+<1> This array encodes the `"sort" : []` array
+<2> This array encodes the `{"time" : {"order" : "desc"}}` object
+<3> This array encodes the `{"popularity" : {"order" : "desc"}}` object
 
-如果你用的是 PHP5.4 及以上版本，我强烈要求你使用 `[]` 构建数组。这会让多维数组看起来易读些：
+If you are on PHP 5.4+, I would strongly encourage you to use the short array syntax.  It makes these nested arrays
+much simpler to read:
 
-[source,php]
---------------------------------------------------
+[source,json]
+----
 $params['body'] = [
     'query' => [
         'match' => [
@@ -103,16 +114,16 @@ $params['body'] = [
     ]
 ];
 $results = $client->search($params);
---------------------------------------------------
+----
 
-=== 空对象数组
+=== Arrays of empty objects
 
-偶尔你会看到 DSL 需要上述两种数据格式。score 查询便是一个很好的例子，该查询有时需要一个对象数组，而有一些对象可能是一个空的 JSON 对象。
+Occasionally, you'll encounter DSL that requires both of the previous patterns.  The function score query is a good
+example, it sometimes requires an array of objects, and some of those objects might be empty JSON objects.
 
-请看如下查询：
-
-[source,js]
---------------------------------------------------
+Given this query:
+[source,json]
+----
 {
    "query":{
       "function_score":{
@@ -125,17 +136,18 @@ $results = $client->search($params);
       }
    }
 }
---------------------------------------------------
+----
 
-我们用下面的 PHP 代码来构建这个查询：
+We can build it using the following PHP code:
 
-[source,php]
---------------------------------------------------
+
+[source,json]
+----
 $params['body'] = array(
     'query' => array(
         'function_score' => array(
-            'functions' => array( <1>
-                array( <2>
+            'functions' => array(  <1>
+                array(  <2>
                     'random_score' => new \stdClass() <3>
                 )
             )
@@ -143,7 +155,7 @@ $params['body'] = array(
     )
 );
 $results = $client->search($params);
---------------------------------------------------
-<1> 这里 encode 为 `"functions" : []`
-<2> 这里 encode 为 `{ "random_score": {} }`
-<3> 这里 encode 为 `"random_score": {}`
+----
+<1> This encodes the array of objects: `"functions" : []`
+<2> This encodes an object inside the array: `{ "random_score": {} }`
+<3> This encodes the empty JSON object: `"random_score": {}`

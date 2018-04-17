@@ -1,67 +1,78 @@
-[[_selectors]]
-== 选择器
 
-连接池维持一份连接清单，它决定节点在什么时候从活节点转变为死节点（或死节点转变为活节点）。然而连接池选择连接对象时是没有逻辑的，这份工作属于 Selector 类。
+== Selectors
 
-选择器（selector）的工作是从连接数组中返回一个连接。和连接池一样，也有几种选择器可供选择。
+The connection pool maintains the list of connections, and decides when nodes should transition from alive to dead (and
+vice versa).  It has no logic to choose connections, however.  That job belongs to the Selector class.
 
-=== RoundRobinSelector（默认）
+The selector's job is to return a single connection from a provided array of connections.  Like the Connection Pool,
+there are several implementations to choose from.
 
-选择器通过轮询调度的方式来返回连接。例如在第一个请求中选择节点1，在第二请求中选择节点 2，以此类推。这确保集群中的节点平均负担流量。轮询调度是基于每个请求来执行的（例如，一个PHP脚本的所有请求轮流发送到不同的节点中）。
+=== RoundRobinSelector (Default)
 
-`RoundRobinSelector` 是默认选择器，但如果你想明确地配置该选择器，你可以这样做：
+This selector returns connections in a round-robin fashion.  Node #1 is selected on the first request, Node #2 on
+the second request, etc.  This ensures an even load of traffic across your cluster.  Round-robin'ing happens on a
+per-request basis (e.g. sequential requests go to different nodes).
+
+The `RoundRobinSelector` is default, but if you wish to explicitily configure it you can do:
 
 [source,php]
---------------------------------------------------
+----
 $client = ClientBuilder::create()
             ->setSelector('\Elasticsearch\ConnectionPool\Selectors\RoundRobinSelector')
             ->build();
---------------------------------------------------
+----
 
-注意：要通过命名空间加类名的方法来指定选择器。
+Note that the implementation is specified via a namespace path to the class.
 
 === StickyRoundRobinSelector
 
-这个选择器具有“粘性”，它更喜欢重用同一个连接。例如，在第一个请求中选择节点1，选择器会重用节点1来发送随后的请求，直到节点请求失败。在节点1请求失败后，选择器会轮询至下一个可用节点，然后一直重用这个节点。
+This selector is "sticky", in that it prefers to reuse the same connection repeatedly.  For example, Node #1 is chosen
+on the first request.  Node #1 will continue to be re-used for each subsequent request until that node fails.  Upon failure,
+the selector will round-robin to the next available node, then "stick" to that node.
 
-对许多 PHP 脚本来说，这是一个理想的策略。由于 PHP 脚本是无共享架构且会快速退出，为每个请求创建新连接通常是一种次优策略且会引起大量的开销。相反，在脚本运行期间“黏住”单个节点会更好。
+This is an ideal strategy for many PHP scripts.  Since PHP scripts are shared-nothing and tend to exit quickly, creating
+new connections for each request is often a sub-optimal strategy and introduces a lot of overhead.  Instead, it is
+better to "stick" to a single connection for the duration of the script.
 
-这个选择器会默认会在初始化时把 hosts 随机打乱，但仍然保证集群中的节点平均负担流量。它动态地更改轮询方式，把轮询每个请求变成轮询每个脚本。
+By default, this selector will randomize the hosts upon initialization, which will still guarantee an even distribution
+of load across the cluster.  It changes the round-robin dynamics from per-request to per-script.
 
-如果你使用 <<_future_mode>> ，这种选择器的“粘性”行为就不理想了，因为所有并行的请求会发送到集群中的同一个节点而非多个节点。当使用 Future 模式时，默认的 `RoundRobinSelector` 选择器会更好。
+If you are using <<_future_mode>>, the "sticky" behavior of this selector will be non-ideal, since all parallel requests
+will go to the same node instead of multiple nodes in your cluster.  When using future mode, the default `RoundRobinSelector`
+should be preferred.
 
-如果你要使用该选择器，你要这样做：
+If you wish to use this selector, you may do so with:
 
 [source,php]
---------------------------------------------------
+----
 $client = ClientBuilder::create()
             ->setSelector('\Elasticsearch\ConnectionPool\Selectors\StickyRoundRobinSelector')
             ->build();
---------------------------------------------------
+----
 
-注意：要通过命名空间加类名的方法来指定选择器。
+Note that the implementation is specified via a namespace path to the class.
 
 === RandomSelector
 
-这种选择器仅仅返回一个随机的节点，不管节点是处于什么状态。这个选择器通常用做测试。
+This selector simply returns a random node, regardless of state.  It is generally just for testing.
 
-如果你要使用该选择器，你要这样做：
+If you wish to use this selector, you may do so with:
 
 [source,php]
---------------------------------------------------
+----
 $client = ClientBuilder::create()
             ->setSelector('\Elasticsearch\ConnectionPool\Selectors\RandomSelector')
             ->build();
---------------------------------------------------
+----
 
-注意：要通过命名空间加类名的方法来指定选择器。
+Note that the implementation is specified via a namespace path to the class.
 
-=== 自定义选择器
+=== Custom Selector
 
-你可以实现自定义选择器。自定义选择器必须实现 `SelectorInterface` 接口。
+You can implement your own custom selector.  Custom selectors must implement `SelectorInterface`
 
 [source,php]
---------------------------------------------------
+----
 namespace MyProject\Selectors;
 
 use Elasticsearch\Connections\ConnectionInterface;
@@ -83,16 +94,17 @@ class MyCustomSelector implements SelectorInterface
     }
 
 }
---------------------------------------------------
+----
+{zwsp} +
 
-然后你可以通过对象注入或命名空间实例化方式来使用自定义选择器：
+You can then use your custom selector either via object injection or namespace instantiation:
 
 [source,php]
---------------------------------------------------
+----
 $mySelector = new MyCustomSelector();
 
 $client = ClientBuilder::create()
             ->setSelector($mySelector)                             // object injection
             ->setSelector('\MyProject\Selectors\FirstSelector')    // or namespace
             ->build();
---------------------------------------------------
+----

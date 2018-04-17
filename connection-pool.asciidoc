@@ -1,86 +1,106 @@
-[[_connection_pool]]
-== 连接池
 
-连接池是客户端内的一个对象，主要是维持现有节点的连接。理论上来讲，节点只有死节点与活节点。
+== Connection Pool
 
-然而在现实世界中，事情绝不会这么明确。有时候节点是处在 _“可能挂了但还未确认”_ 、 _“连接超时但未知原因”_ 或 _“最近挂过但现在可用”_ 的灰色地带中。而连接池的工作就是管理这些无规则的连接，并为客户端提供最稳定的连接状态。
+The connection pool is an object inside the client that is responsible for maintaining the current list of nodes.
+Theoretically, nodes are either dead or alive.
 
-如果一个连接池找不到一个活节点来发送查询，那么就会返回一个 `NoNodesAvailableException` 异常给客户端。这里跟最大重连次数（retry）有所不同。假如有这么一个例子：你的集群中可能有 10 个节点。你发送一个请求，其中有 9 个节点因为连接超时而请求失败。而第 10 个节点发送请求成功并成功执行请求。在上述例子中，前 9 个节点会被标记为死节点（连接池处于使用状态才会被标记），且它们的“死亡”定时器会启动生效。
+However, in the real world, things are never so clear.  Nodes are sometimes in a gray-zone of _"probably dead but not
+confirmed"_, _"timed-out but unclear why"_ or _"recently dead but now alive"_. The connection pool's job is to
+manage this set of unruly connections and try to provide the best behavior to the client.
 
-当要发送下一个请求时，节点1-9是被标记为死节点，所以请求会跳过这些节点。请求只会发送到唯一的活节点 10 中，而假如发送到这个节点也失败了，那么就会返回 `NoNodesAvailableException` 。你会留意到这里的发送次数比重连次数（retries）的值要少，因为重连次数只适用于活节点。在这种情况下，只有一个节点是活节点，请求失败后就会返回 `NoNodesAvailableException` 。
+If a connection pool is unable to find an alive node to query against, it will return a `NoNodesAvailableException`.
+This is distinct from an exception due to maximum retries.  For example, your cluster may have 10 nodes.  You execute
+a request and 9 out of the 10 nodes fail due to connection timeouts.  The tenth node succeeds and the query executes.
+The first nine nodes will be marked dead (depending on the connection pool being used) and their "dead" timers will begin
+ticking.
 
-这里有几种连接池可供选择：
+When the next request is sent to the client, nodes 1-9 are still considered "dead", so they will be skipped.  The request
+is sent to the only known alive node (#10), and if this node fails, a `NoNodesAvailableException` is returned. You'll note
+this is much less than the `retries` value, because `retries` only applies to retries against alive nodes.  In this case,
+only one node is known to be alive, so `NoNodesAvailableException` is returned.
 
-=== staticNoPingConnectionPool（默认）
 
-连接池维持一个静态的 hosts 清单，这些 hosts 在客户端初始化时都被假定为活节点。如果一个节点处理请求失败，那么该节点会被标记为死节点并持续 60 秒，而请求会发送到下一个节点。60 秒过后，节点则会再生并加入请求轮询中。每增加一次请求失败次数都会导致死亡时间以指数级别增长。
+There are several connection pool implementations that you can choose from:
 
-请求成功一次后会重置 "failed ping timeout" 计数器。
+=== staticNoPingConnectionPool (default)
 
-如果你想明确的设置连接池为 `StaticNoPingConnectionPool` ，你可能要在ClientBuilder对象中使用 `setConnectionPool()` 方法：
+This connection pool maintains a static list of hosts, which are assumed to be alive when the client initializes.  If
+a node fails a request, it is marked as `dead` for 60 seconds and the next node is tried.  After 60 seconds, the node
+is revived and put back into rotation.  Each additional failed request will cause the dead timeout to increase exponentially.
+
+A successful request will reset the "failed ping timeout" counter.
+
+If you wish to explicitly set the `StaticNoPingConnectionPool` implementation, you may do so with the `setConnectionPool()`
+method of the ClientBuilder object:
 
 [source,php]
---------------------------------------------------
+----
 $client = ClientBuilder::create()
             ->setConnectionPool('\Elasticsearch\ConnectionPool\StaticNoPingConnectionPool', [])
             ->build();
---------------------------------------------------
+----
 
-注意：要通过命名空间加类名的方法来指定连接池。
+Note that the implementation is specified via a namespace path to the class.
 
-=== StaticConnectionPool
+=== staticConnectionPool
 
-`StaticConnectionPool` 除了要在使用前 ping 节点来确定是否为活节点，其它的特性与 `StaticNoPingConnectionPool` 一致。这可能对于执行时间较长的脚本比较有用，但这往往会增加额外开销，因为对一般的PHP脚本来说这是不必要的。
+Identical to the `StaticNoPingConnectionPool`, except it pings nodes before they are used to determine if they are alive.
+This may be useful for long-running scripts, but tends to be additional overhead that is unnecessary for average PHP scripts.
 
-使用 `StaticConnectionPool` 的方法：
+To use the `StaticConnectionPool`:
 
 [source,php]
---------------------------------------------------
+----
 $client = ClientBuilder::create()
             ->setConnectionPool('\Elasticsearch\ConnectionPool\StaticConnectionPool', [])
             ->build();
---------------------------------------------------
+----
 
-注意：要通过命名空间加类名的方法来指定连接池。
+Note that the implementation is specified via a namespace path to the class.
 
-=== SimpleConnectionPool
+=== simpleConnectionPool
 
-`SimpleConnectionPool` 仅仅返回选择器（Selector）指定的下个节点信息，它不监测节点的“生死状态”。不管节点是活节点还是死节点，这种连接池都会返回节点信息给客户端。它仅仅是个简单的静态 host 连接池。
+The `SimpleConnectionPool` simply returns the next node as specified by the Selector; it does not perform track
+the "liveness" of nodes.  This pool will return nodes whether they are alive or dead.  It is just a simple pool of static
+hosts.
 
-`SimpleConnectionPool` 不建议常规使用，但是它是个有用的调试工具。
+The `SimpleConnectionPool` is not recommended for routine use, but it may be a useful debugging tool.
 
-使用 `SimpleConnectionPool` 的方法：
+To use the `SimpleConnectionPool`:
 
 [source,php]
---------------------------------------------------
+----
 $client = ClientBuilder::create()
             ->setConnectionPool('\Elasticsearch\ConnectionPool\SimpleConnectionPool', [])
             ->build();
---------------------------------------------------
+----
 
-注意：要通过命名空间加类名的方法来指定连接池。
+Note that the implementation is specified via a namespace path to the class.
 
-=== SniffingConnectionPool
+=== sniffingConnectionPool
 
-`SniffingConnectionPool` 与前面的两个静态连接池有所不同，它是动态的。用户提供 hosts 种子，而客户端则会嗅探这些 hosts 并发现集群的其余节点。 `SniffingConnectionPool` 通过 Cluster State API 来实现嗅探。当集群添加新节点或删除节点，客户端会更新连接池的活跃连接。
+Unlike the two previous static connection pools, this one is dynamic.  The user provides a seed list of hosts, which the
+client uses to "sniff" and discover the rest of the cluster.  It achieves this through the Cluster State API.  As new
+nodes are added or removed from the cluster, the client will update it's pool of active connections.
 
-使用 `SniffingConnectionPool` 的方法：
+To use the `SniffingConnectionPool`:
 
 [source,php]
---------------------------------------------------
+----
 $client = ClientBuilder::create()
             ->setConnectionPool('\Elasticsearch\ConnectionPool\SniffingConnectionPool', [])
             ->build();
---------------------------------------------------
+----
 
-注意：要通过命名空间加类名的方法来指定连接池。
+Note that the implementation is specified via a namespace path to the class.
 
-=== 自定义连接池
 
-如果你要是实现自定义连接池，你的类则必须实现 `ConnectionPoolInterface` 接口：
+=== Custom Connection Pool
+
+If you wish to implement your own custom Connection Pool, your class must implement `ConnectionPoolInterface`:
 
 [source,php]
---------------------------------------------------
+----
 class MyCustomConnectionPool implements ConnectionPoolInterface
 {
 
@@ -102,23 +122,25 @@ class MyCustomConnectionPool implements ConnectionPoolInterface
         // code here
     }
 }
---------------------------------------------------
+----
 
-然后你要实例化自定义的连接池并注入到 ClientBuilder：
+You can then instantiate an instance of your ConnectionPool and inject it into the ClientBuilder:
 
 [source,php]
---------------------------------------------------
+----
 $myConnectionPool = new MyCustomConnectionPool();
 
 $client = ClientBuilder::create()
             ->setConnectionPool($myConnectionPool, [])
             ->build();
---------------------------------------------------
+----
 
-如果你的连接池只有较小的变更，你可以考虑扩展 `AbstractConnectionPool` ，它提供一些具体的助手方法。如果你不选择这种做法，你就要确保连接池拥有兼容的构造方法（因为在接口中没有定义好）：
+If your connection pool only makes minor changes, you may consider extending `AbstractConnectionPool`, which provides
+some helper concrete methods.  If you choose to go down this route, you need to make sure your ConnectionPool's implementation
+has a compatible constructor (since it is not defined in the interface):
 
 [source,php]
---------------------------------------------------
+----
 class MyCustomConnectionPool extends AbstractConnectionPool implements ConnectionPoolInterface
 {
 
@@ -145,28 +167,38 @@ class MyCustomConnectionPool extends AbstractConnectionPool implements Connectio
         // code here
     }
 }
---------------------------------------------------
+----
 
-假如你的构造方法与 `AbstractConnectionPool` 的构造方法相同，你可以用对象注入或命名空间实例化来设置连接池：
+If your constructor matches AbstractConnectionPool, you may use either object injection or namespace instantiation:
 
 [source,php]
---------------------------------------------------
+----
 $myConnectionPool = new MyCustomConnectionPool();
 
 $client = ClientBuilder::create()
             ->setConnectionPool($myConnectionPool, [])                                      // object injection
             ->setConnectionPool('/MyProject/ConnectionPools/MyCustomConnectionPool', [])    // or namespace
             ->build();
---------------------------------------------------
+----
 
-=== 选择什么连接池？PHP 和连接池的关系
 
-初看觉得 `sniffingConnectionPool` 似乎比较高级。对许多语言来说当然如此。但是 PHP 则有些不同。
+=== Which connection pool to choose? PHP and connection pooling
 
-因为 PHP 是无共享架构（share-nothing architecture），php 脚本实例化后无法维持一个连接池。这意味着每个脚本在重新执行时都要负责创建、维持和销毁连接。
+At first glance, the `sniffingConnectionPool` implementation seems superior.  For many languages, it is.  In PHP, the
+conversation is a bit more nuanced.
 
-嗅探是相对轻量的操作（调用一次API到 `/_cluster/state` ，然后 ping 每个节点），但是对于某些 PHP 程序来说，这可能是一笔不可忽视的开销。一般的 PHP 脚本可能会加载客户端，执行一些请求然后关闭。想象一下这个脚本每秒调用 1000 次： `SniffingConnectionPool` 会每秒执行嗅探和 ping 所有节点 1000 次。嗅探程序则会增加大量的开销。
+Because PHP is a share-nothing architecture, there is no way to maintain a connection pool across script instances.
+This means that every script is responsible for creating, maintaining, and destroying connections everytime the script
+is re-run.
 
-在实际中，如果你的脚本只是执行一些请求，用嗅探就太粗暴了。嗅探对于常驻进程来说往往更加有用。
+Sniffing is a relatively lightweight operation (one API call to `/_cluster/state`, followed by pings to each node) but
+it may be a non-negligible overhead for certain PHP applications.  The average PHP script will likely load the client,
+execute a few queries and then close.  Imagine this script being called 1000 times per second: the sniffing connection
+pool will perform the sniffing and pinging process 1000 times per second.  The sniffing process will add a large
+amount of overhead
 
-基于上述原因，默认连接池才设置为当前的 `staticNoPingConnectionPool` 。当然你可以更改默认连接池，但我们强烈建议你进行测试并确保连接池对于性能没有产生不良影响。
+In reality, if your script only executes a few queries, the sniffing concept is _too_ robust.  It tends to be more
+useful in long-lived processes which potentially "out-live" a static list.
+
+For this reason the default connection pool is currently the `staticNoPingConnectionPool`.  You can, of course, change
+this default - but we strongly recommend you load test and verify that it does not negatively impact your performance.
