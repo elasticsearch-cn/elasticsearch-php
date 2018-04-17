@@ -57,7 +57,7 @@ $response = $client->index($params);
 
 === 批量（bulk）索引
 
-Elasticsearch 也支持批量（bulk）索引文档。bulk API 要求提供 JSON格式的 action/元数据 键值对。在 PHP 中构建批量文档数据也是相似的。你首先要创建一个 action 数组对象（如 `index` 对象），然后你还要创建一个 body 对象。而 PHP 程序则重复上述操作构建文档数据。
+Elasticsearch 也支持批量（bulk）索引文档。bulk API 要求提供 JSON 格式的 action/元数据 键值对。在 PHP 中构建批量文档数据也是相似的。你首先要创建一个 action 数组对象（如 `index` 对象），然后你还要创建一个 body 对象。而 PHP 程序则重复上述操作构建文档数据。
 
 一个简单的例子如下所示：
 
@@ -121,7 +121,7 @@ if (!empty($params['body'])) {
 [[_getting_documents]]
 == 获取文档
 
-Elasticsearch 提供获取文档的实际时间。这意味着只要文档被索引且客户端收到消息确认后，你就可以立即在任何的分片中检索文档。Get 操作通过 `index/type/id` 方式请求一个文档信息：
+Elasticsearch 提供实时获取文档的方法。这意味着只要文档被索引且客户端收到消息确认后，你就可以立即在任何的分片中检索文档。Get 操作通过 `index/type/id` 方式请求一个文档信息：
 
 [source,js]
 --------------------------------------------------
