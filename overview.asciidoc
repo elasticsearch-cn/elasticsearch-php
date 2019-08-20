@@ -1,7 +1,7 @@
 [[_overview]]
 == 概述
 
-这是 Elasticsearch 官方的 PHP 客户端。我们把 Elasticsearch-PHP 设计成低级客户端（https://en.wikipedia.org/wiki/Low-level_design[低级设计模式]），使用时不会偏离 REST API 的用法。
+这是 Elasticsearch 官方的 PHP 客户端。我们把 Elasticsearch-PHP 设计成低级客户端（&#8203;https://en.wikipedia.org/wiki/Low-level_design[低级设计模式]），使用时不会偏离 REST API 的用法。
 
 客户端所有方法几乎都与 REST API 对应，而且也与其他编程语言的客户端（如 ruby, python 等）方法结构相似。我们希望这种对应方式可以方便开发者更加容易上手客户端，且以最小的代价快速从一种编程语言转换到另一种编程语言。
 

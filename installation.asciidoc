@@ -53,7 +53,7 @@ curl -s http://getcomposer.org/installer | php
 php composer.phar install --no-dev
 --------------------------------------------------
 +
-关于 Composer 的详情请查看https://www.phpcomposer.com/[Composer 中文网]。
+关于 Composer 的详情请查看&#8203;https://www.phpcomposer.com/[Composer 中文网]。
 
 * 最后加载 autoload.php。如果你现有项目是用 Composer 安装的，那么 autoload.php 也许已经在某处加载了，你就不必再加载。最后实例化一个客户端对象：
 +
